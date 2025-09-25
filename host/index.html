@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우리 학교 정보 (편집)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #000;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center py-12">
+    <div class="container mx-auto px-4 max-w-4xl">
+        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl space-y-12">
+
+            <!-- Title Section -->
+            <div class="text-center space-y-2">
+                <h1 class="text-4xl md:text-5xl font-extrabold text-gray-800 tracking-tight leading-tight">정보 편집</h1>
+                <p class="text-xl md:text-2xl text-gray-500 font-medium">시간표와 준비물을 편집하고 저장하세요</p>
+                <div id="user-info" class="text-xs text-gray-400 mt-2">사용자 ID: <span id="user-id"></span></div>
+            </div>
+
+            <!-- Timetable Section -->
+            <div class="bg-green-50 p-6 md:p-8 rounded-2xl shadow-inner space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-3xl font-bold text-gray-700">시간표</h2>
+                </div>
+                <div class="overflow-x-auto rounded-xl shadow-md border border-green-200">
+                    <table id="timetable-table" class="min-w-full bg-green-100 text-center text-gray-800">
+                        <thead class="bg-green-200">
+                            <tr>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">교시</th>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">월</th>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">화</th>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">수</th>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">목</th>
+                                <th class="py-3 px-2 border-b-2 border-green-300 font-semibold text-lg">금</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Editable timetable will be populated here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Supplies Section -->
+            <div class="bg-yellow-50 p-6 md:p-8 rounded-2xl shadow-inner space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-3xl font-bold text-gray-700">준비물</h2>
+                </div>
+                <div class="mt-6">
+                    <textarea id="edit-supplies-textarea" class="w-full h-48 p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-yellow-500 transition-all duration-200 text-gray-700" placeholder="예시:
+- 영어 교과서
+- 수학 문제집
+- 미술 도구
+- 체육복"></textarea>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Canvas 환경에서 제공하는 전역 변수를 사용합니다.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firebase 초기화
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // --- 전역 변수 ---
+        let userId = null;
+        
+        // --- 인증 및 데이터 로드 ---
+        async function authenticateAndLoadData() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase authentication error:", error);
+            }
+        }
+        
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('user-id').textContent = userId;
+                // 인증 완료 후 데이터 로드 시작
+                setupFirestoreListeners();
+            } else {
+                console.error("User not authenticated.");
+            }
+        });
+
+        // --- Firebase Firestore 리스너 설정 ---
+        function setupFirestoreListeners() {
+            if (!userId) {
+                console.error("User ID is not available for Firestore listeners.");
+                return;
+            }
+
+            // 시간표 데이터 리스너
+            const timetableDocRef = doc(db, 'artifacts', appId, 'users', userId, 'timetable', 'timetable_data');
+            onSnapshot(timetableDocRef, (docSnap) => {
+                const data = docSnap.exists() ? docSnap.data().schedule : defaultTimetableData;
+                renderTimetable('timetable-table', data, true); // 편집 가능하게 렌더링
+                if (!docSnap.exists()) {
+                    setDoc(timetableDocRef, { schedule: defaultTimetableData });
+                }
+            }, (error) => {
+                console.error("Error fetching timetable data:", error);
+            });
+
+            // 준비물 데이터 리스너
+            const suppliesDocRef = doc(db, 'artifacts', appId, 'users', userId, 'supplies', 'supplies_data');
+            onSnapshot(suppliesDocRef, (docSnap) => {
+                const supplies = docSnap.exists() ? docSnap.data().items : [];
+                document.getElementById('edit-supplies-textarea').value = supplies.join('\n'); // 텍스트 영역에 데이터 로드
+                if (!docSnap.exists()) {
+                    setDoc(suppliesDocRef, { items: [] });
+                }
+            }, (error) => {
+                console.error("Error fetching supplies data:", error);
+            });
+        }
+        
+        // --- 시간표 로직 ---
+        const defaultTimetableData = [
+            ['1교시', '', '', '', '', ''],
+            ['2교시', '', '', '', '', ''],
+            ['3교시', '', '', '', '', ''],
+            ['4교시', '', '', '', '', ''],
+            ['5교시', '', '', '', '', ''],
+            ['6교시', '', '', '', '', ''],
+        ];
+
+        function renderTimetable(tableId, data, editable) {
+            const tableBody = document.querySelector(`#${tableId} tbody`);
+            tableBody.innerHTML = '';
+            
+            data.forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-green-300 last:border-0';
+                row.forEach((cell, colIndex) => {
+                    const td = document.createElement('td');
+                    td.className = 'py-3 px-2';
+                    if (colIndex === 0) {
+                        td.textContent = cell;
+                    } else {
+                        const content = document.createElement(editable ? 'input' : 'span');
+                        if (editable) {
+                            content.type = 'text';
+                            content.value = cell;
+                            content.className = 'w-full text-center bg-transparent border-none focus:outline-none';
+                            content.oninput = (e) => {
+                                const newData = JSON.parse(JSON.stringify(data)); // 데이터 복제
+                                newData[rowIndex][colIndex] = e.target.value;
+                                saveTimetableData(newData);
+                            };
+                        } else {
+                            content.textContent = cell;
+                        }
+                        td.appendChild(content);
+                    }
+                    tr.appendChild(td);
+                });
+                tableBody.appendChild(tr);
+            });
+        }
+
+        // 시간표 데이터 저장
+        function saveTimetableData(data) {
+            if (userId) {
+                setDoc(doc(db, 'artifacts', appId, 'users', userId, 'timetable', 'timetable_data'), { schedule: data });
+            }
+        }
+        
+        // 준비물 데이터 저장
+        function saveSuppliesData() {
+            const textarea = document.getElementById('edit-supplies-textarea');
+            const items = textarea.value.split('\n').map(item => item.trim()).filter(item => item.length > 0);
+            if (userId) {
+                setDoc(doc(db, 'artifacts', appId, 'users', userId, 'supplies', 'supplies_data'), { items: items });
+            }
+        }
+
+        // --- 이벤트 리스너 ---
+        document.addEventListener('DOMContentLoaded', () => {
+            authenticateAndLoadData();
+            
+            // 준비물 텍스트 수정 시 자동 저장
+            document.getElementById('edit-supplies-textarea').addEventListener('input', () => {
+                saveSuppliesData();
+            });
+        });
+    </script>
+</body>
+</html>
