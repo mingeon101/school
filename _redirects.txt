@@ -1,0 +1,1 @@
+/edit    /host/index.html    200
