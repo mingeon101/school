@@ -1,1 +1,4 @@
-/edit    /host/index.html    200
+[[redirects]]
+  from = "/api/*"
+  to = "/host/index.html"
+  status = 200
