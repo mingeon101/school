@@ -114,8 +114,6 @@
 
         // Canvas 환경에서 제공하는 전역 변수와 사용자 ID를 사용합니다.
         const originalAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
-        // __app_id에서 경로를 추출하여 유효한 앱 ID로 변환
         const parts = originalAppId.split('/');
         const appId = parts[1];
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -151,24 +149,7 @@
         // 인증 및 데이터 로드
         async function authenticateAndLoadData() {
             if (!auth) return;
-            try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("Firebase authentication error:", error);
-                try {
-                    await signInAnonymously(auth);
-                } catch (anonError) {
-                    console.error("Firebase anonymous authentication failed:", anonError);
-                }
-            }
-        }
-        
-        if (auth) {
-            onAuthStateChanged(auth, (user) => {
+            onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     userId = user.uid;
                     document.getElementById('user-id').textContent = userId;
@@ -176,7 +157,13 @@
                     loadingIndicator.classList.add('hidden');
                     mainContent.classList.remove('hidden');
                 } else {
-                    console.error("User not authenticated.");
+                    console.error("User not authenticated. Attempting anonymous sign-in.");
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (error) {
+                        console.error("Anonymous sign-in failed:", error);
+                        document.getElementById('loading-indicator').innerHTML = '<p class="text-red-500 font-medium">인증 실패: 다시 시도해주세요.</p>';
+                    }
                 }
             });
         }
@@ -195,7 +182,6 @@
                 if (data && data.schedule) {
                     renderTimetable('timetable-table', data.schedule, false);
                 } else {
-                    // 데이터가 없을 경우 기본값으로 렌더링
                     renderTimetable('timetable-table', [
                         ['1교시', '', '', '', '', ''],
                         ['2교시', '', '', '', '', ''],
@@ -247,7 +233,6 @@
 
         // 급식 데이터 로드 (API는 더미 데이터로 대체)
         async function fetchLunchMenu() {
-            // 실제 API 대신 더미 데이터 사용
             const dummyLunch = {
                 "date": "2025-09-26",
                 "menu": "쌀밥, 미역국, 불고기, 김치, 사과"
