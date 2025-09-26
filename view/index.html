@@ -231,13 +231,37 @@
             });
         }
 
-        // 급식 데이터 로드 (API는 더미 데이터로 대체)
+        // 급식 데이터 로드
         async function fetchLunchMenu() {
-            const dummyLunch = {
-                "date": "2025-09-26",
-                "menu": "쌀밥, 미역국, 불고기, 김치, 사과"
-            };
-            document.getElementById('lunch-menu').textContent = dummyLunch.menu;
+            const API_KEY = "8fe6dd6237b64f9c97194fa87453b179";
+            const EDUCATION_OFFICE_CODE = "T10"; // 교육청 코드 업데이트
+            const SCHOOL_CODE = "9296032"; // 학교 코드 업데이트
+            
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            const dateStr = `${year}${month}${day}`;
+
+            const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${API_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${EDUCATION_OFFICE_CODE}&SD_SCHUL_CODE=${SCHOOL_CODE}&MLSV_YMD=${dateStr}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                const menuDiv = document.getElementById('lunch-menu');
+                
+                if (data.mealServiceDietInfo && data.mealServiceDietInfo[1].row) {
+                    const menu = data.mealServiceDietInfo[1].row[0].DDISH_NM;
+                    // 알레르기 유발 정보 제거
+                    const cleanMenu = menu.replace(/\s?\(\d+\.?\)/g, '').replace(/<br\/>/g, ', ');
+                    menuDiv.textContent = cleanMenu;
+                } else {
+                    menuDiv.textContent = '오늘은 급식 정보가 없습니다.';
+                }
+            } catch (error) {
+                console.error("급식 정보를 불러오는 데 실패했습니다:", error);
+                document.getElementById('lunch-menu').textContent = '급식 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.';
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
