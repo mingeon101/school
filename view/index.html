@@ -45,6 +45,9 @@
                 <h1 class="text-4xl md:text-5xl font-extrabold text-gray-800 tracking-tight leading-tight">우리 학교 정보</h1>
                 <p class="text-xl md:text-2xl text-gray-500 font-medium">오늘의 급식 메뉴와 시간표, 준비물을 확인하세요</p>
                 <div id="user-info" class="text-xs text-gray-400 mt-2">사용자 ID: <span id="user-id"></span></div>
+                <a href="../host/index.html" class="inline-block mt-4 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-full shadow-lg transition-all transform hover:scale-105 duration-200">
+                    편집 페이지로 이동
+                </a>
             </div>
 
             <!-- School Meal Section -->
@@ -52,9 +55,9 @@
                 <div class="flex items-center justify-between">
                     <h2 class="text-3xl font-bold text-gray-700">오늘의 급식</h2>
                     <p id="meal-date" class="text-lg font-medium text-gray-600"></p>
-                </div>
-                <div id="meal-info" class="bg-blue-100 p-6 rounded-xl shadow-md border border-blue-200">
-                    <p class="text-gray-500 text-center font-medium">급식 정보를 불러오는 중입니다...</p>
+                    <div id="meal-info" class="flex items-center justify-center h-24">
+                        <div class="loading-spinner"></div>
+                    </div>
                 </div>
             </div>
 
@@ -98,23 +101,31 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
         
         // Canvas 환경에서 제공하는 전역 변수를 사용합니다.
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const originalAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = originalAppId.replace(/\//g, '-');
+        
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // Firebase 초기화
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getDatabase(app);
+        } catch (e) {
+            console.error("Firebase initialization failed:", e);
+        }
         
         // --- 전역 변수 ---
         let userId = null;
         
         // --- 인증 및 데이터 로드 ---
         async function authenticateAndLoadData() {
+            if (!auth) return;
             try {
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
@@ -130,47 +141,42 @@
             if (user) {
                 userId = user.uid;
                 document.getElementById('user-id').textContent = userId;
-                // 인증 완료 후 데이터 로드 시작
-                setupFirestoreListeners();
+                setupRealtimeDBListeners();
             } else {
                 console.error("User not authenticated.");
             }
         });
 
-        // --- Firebase Firestore 리스너 설정 ---
-        function setupFirestoreListeners() {
-            if (!userId) {
-                console.error("User ID is not available for Firestore listeners.");
+        // --- Firebase Realtime Database 리스너 설정 ---
+        function setupRealtimeDBListeners() {
+            if (!userId || !db) {
+                console.error("User ID or DB is not available for Realtime Database listeners.");
                 return;
             }
 
             // 시간표 데이터 리스너
-            const timetableDocRef = doc(db, 'artifacts', appId, 'users', userId, 'timetable', 'timetable_data');
-            onSnapshot(timetableDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data().schedule;
-                    renderTimetable('timetable-table', data);
+            const timetableRef = ref(db, `artifacts/${appId}/users/${userId}/timetable`);
+            onValue(timetableRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.schedule) {
+                    renderTimetable('timetable-table', data.schedule);
                 } else {
-                    // 데이터가 없으면 기본값으로 초기화
-                    setDoc(timetableDocRef, { schedule: defaultTimetableData });
+                    set(timetableRef, { schedule: defaultTimetableData });
+                    renderTimetable('timetable-table', defaultTimetableData);
                 }
-            }, (error) => {
-                console.error("Error fetching timetable data:", error);
-            });
+            }, { onlyOnce: false });
 
             // 준비물 데이터 리스너
-            const suppliesDocRef = doc(db, 'artifacts', appId, 'users', userId, 'supplies', 'supplies_data');
-            onSnapshot(suppliesDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const supplies = docSnap.data().items;
-                    renderSupplies(supplies);
+            const suppliesRef = ref(db, `artifacts/${appId}/users/${userId}/supplies`);
+            onValue(suppliesRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.items) {
+                    renderSupplies(data.items);
                 } else {
-                    // 데이터가 없으면 기본값으로 초기화
-                    setDoc(suppliesDocRef, { items: [] });
+                    set(suppliesRef, { items: [] });
+                    renderSupplies([]);
                 }
-            }, (error) => {
-                console.error("Error fetching supplies data:", error);
-            });
+            }, { onlyOnce: false });
         }
         
         // --- 급식 API 로직 ---
